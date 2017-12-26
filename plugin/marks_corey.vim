@@ -51,10 +51,12 @@ endif
 
 "[ sign id, line number, file name]
 let s:mylist = [["00","0","DO NOT CHANGE ANYTHING, THIS USING FOR A VIM PLUGIN. BY HONGLI GAO @2010/08"]]
+" let s:mylist = [[]]
 let s:myIndex = 1
 let s:tmplist = ["00","0","corey"]
 let s:deleteFlag = 0
-let s:outputFileName = "DO_NOT_DELETE_IT"
+" let s:outputFileName = "DO_NOT_DELETE_IT"
+let s:outputFileName = ""
 let s:remarkItem = ["REMARK","SEARCH","FLAG"]
 
 " ---------------------------------------------------------------------
@@ -68,7 +70,25 @@ fun! SaveP()
         let g:Signs_file_path_corey = g:Signs_file_path_corey . Pname
         call Save_signs_to_file()
         let g:Signs_file_path_corey = temp
+      else
+        echohl WarningMsg | echo "\nError: g:Signs_file_path_corey not define!" | echohl None
       endif
+  else
+    let dir=expand("%:p:h")
+    let Pname="marks".g:outFileExt
+    let path=dir.g:prefixPath.'/'.Pname
+
+    if !isdirectory(dir.g:prefixPath)
+        call mkdir(dir.g:prefixPath, "")
+    endif
+    if filereadable(path) 
+        call delete(path)
+    endif
+
+    let temp = g:Signs_file_path_corey
+    let g:Signs_file_path_corey=path
+    call Save_signs_to_file()
+    let g:Signs_file_path_corey = temp
   endif
 endfun
 
@@ -82,7 +102,23 @@ fun! ReloadP()
         let g:Signs_file_path_corey = g:Signs_file_path_corey . Pbname
         call Load_signs_from_file()
         let g:Signs_file_path_corey = temp
+      else
+        echohl WarningMsg | echo "\nError: g:Signs_file_path_corey not define!" | echohl None
       endif
+  else
+    let dir=expand("%:p:h")
+    let Pname="marks".g:outFileExt
+    let path=dir.g:prefixPath.'/'.Pname
+
+    if !filereadable(path) 
+        echohl WarningMsg | echo "\nFile not found: ".path | echohl None
+        return
+    endif
+
+    let temp = g:Signs_file_path_corey
+    let g:Signs_file_path_corey=path
+    call Load_signs_from_file()
+    let g:Signs_file_path_corey = temp
   endif
 endfun
 " ---------------------------------------------------------------------
@@ -175,6 +211,11 @@ fun! Save_signs_to_file()
   endfor
   if exists("g:Signs_file_path_corey")
       let writeFlag = writefile(tempList, s:outputFileName)
+      if writeFlag==0       
+        echo "\nSucces to save file: ".s:outputFileName
+      else
+        echohl WarningMsg | echo "\nError to save file: ".s:outputFileName | echohl None
+      endif
   endif
 endfun
 " ---------------------------------------------------------------------
@@ -196,9 +237,13 @@ fun! Load_signs_from_file()
       let iflag = 1
     endfor
     let s:mylist = tempList
+  else
+      echohl WarningMsg | echo "\nFile not found: ".s:outputFileName | echohl None
+      return
   endif
 
   call s:Flash_signs()
+  echo "\nSucces to reload file: ".s:outputFileName
 
   "echo s:mylist
 endfun
@@ -207,7 +252,8 @@ endfun
 fun! s:Get_signs_file_name()
 
   if exists("g:Signs_file_path_corey")
-    let s:outputFileName = g:Signs_file_path_corey . "_DO_NOT_DELETE_IT"
+    " let s:outputFileName = g:Signs_file_path_corey . "_DO_NOT_DELETE_IT"
+    let s:outputFileName = g:Signs_file_path_corey 
   endif
 endfun
 
@@ -424,7 +470,7 @@ endif
 nnoremap <silent> <script> <Plug>Goto_prev_sign :call Goto_prev_sign()<cr>
 
 if !hasmapto('<Plug>Remove_all_signs') 
-  map <unique> <F4> <Plug>Remove_all_signs
+  " map <unique> <F4> <Plug>Remove_all_signs
 endif
 nnoremap <silent> <script> <Plug>Remove_all_signs :call Remove_all_signs()<cr>
 
@@ -434,8 +480,12 @@ endif
 nnoremap <silent> <script> <Plug>Move_sign :call Move_sign()<cr>
 
 
-noremap <F6> :call SaveP()<cr>
-noremap <F5> :call ReloadP()<cr>
+" noremap <F6> :call SaveP()<cr>
+" noremap <F5> :call ReloadP()<cr>
+command! SaveMarks call SaveP()
+command! ReloadMarks call ReloadP()
+command! RemoveAllMarks call Remove_all_signs()
+
 
 " ---------------------------------------------------------------------
 
