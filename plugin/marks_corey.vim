@@ -59,68 +59,234 @@ let s:deleteFlag = 0
 let s:outputFileName = ""
 let s:remarkItem = ["REMARK","SEARCH","FLAG"]
 
-" ---------------------------------------------------------------------
-fun! SaveP()
-  call inputsave()
-  let Pname = input('Save Marks to: ')
-  call inputrestore()
-  if len(Pname) > 0
-      if exists("g:Signs_file_path_corey")
-        let temp = g:Signs_file_path_corey
-        let g:Signs_file_path_corey = g:Signs_file_path_corey . Pname
-        call Save_signs_to_file()
-        let g:Signs_file_path_corey = temp
-      else
-        echohl WarningMsg | echo "\nError: g:Signs_file_path_corey not define!" | echohl None
-      endif
-  else
-    let dir=expand("%:p:h")
-    let Pname="marks".g:outFileExt
-    let path=dir.g:prefixPath.'/'.Pname
 
-    if !isdirectory(dir.g:prefixPath)
-        call mkdir(dir.g:prefixPath, "")
-    endif
-    if filereadable(path) 
-        call delete(path)
-    endif
-
-    let temp = g:Signs_file_path_corey
-    let g:Signs_file_path_corey=path
-    call Save_signs_to_file()
-    let g:Signs_file_path_corey = temp
+fun! SaveLocalMark()
+  let markFileName = s:GetMarkFileFromInput('Save local marks to: ')
+  let projectRoot = s:GetProjectRoot()
+  if len(projectRoot) <= 0
+    return
   endif
+  call s:SaveMark(projectRoot, markFileName)
 endfun
 
-fun! ReloadP()
-  call inputsave()
-  let Pbname = input('Load Marks from: ')
-  call inputrestore()
-  if len(Pbname) > 0
-      if exists("g:Signs_file_path_corey")
-        let temp = g:Signs_file_path_corey
-        let g:Signs_file_path_corey = g:Signs_file_path_corey . Pbname
-        call Load_signs_from_file()
-        let g:Signs_file_path_corey = temp
-      else
-        echohl WarningMsg | echo "\nError: g:Signs_file_path_corey not define!" | echohl None
-      endif
-  else
-    let dir=expand("%:p:h")
-    let Pname="marks".g:outFileExt
-    let path=dir.g:prefixPath.'/'.Pname
+fun! SaveGlobalMark()
+  if !exists("g:Signs_file_path_corey")
+      echohl WarningMsg | echo "g:Signs_file_path_corey not define." | echohl None
+      return
+  endif
 
-    if !filereadable(path) 
-        echohl WarningMsg | echo "\nFile not found: ".path | echohl None
+  let markFileName = s:GetMarkFileFromInput('Save global marks to: ')
+  let projectRoot = s:GetProjectRoot()
+  if len(projectRoot) <= 0
+    return
+  endif
+
+  let dstProjectRoot = g:Signs_file_path_corey.'/'.markFileName
+  if isdirectory(dstProjectRoot)
+      let reply = input('Project root exist, delete it?(y/n): ')
+      if reply == 'y'
+          call delete(dstProjectRoot, "rf")
+      else
+          echo "\nCancel."
+          return
+      endif
+  endif
+  call s:SaveMark(dstProjectRoot, markFileName)
+  call s:BackupScrFile(projectRoot, dstProjectRoot)
+  echo "Succes to save backup: ".dstProjectRoot
+endfun
+
+fun! s:SaveMark(root, markFile)
+  let markFileName = a:markFile
+  let projectRoot = a:root
+  let localMarksDir=projectRoot.g:prefixPath.'/'.'marks'
+  let path=localMarksDir.'/'.markFileName
+
+  " let path = s:GetMarkFileFromInput('Save Marks to: ')
+  " let localMarksDir=fnamemodify(path, ':h')
+  if filereadable(path) 
+      let reply = input('Mark file exist! Replace?(y/n): ')
+      if reply != 'y'
+          echo "\nCancel save local mark."
+          return
+      endif
+      call delete(path)
+  elseif !isdirectory(localMarksDir)
+      call mkdir(localMarksDir, "p")
+  endif
+
+  call Save_signs_to_file(projectRoot, path)
+endfun
+
+fun! ReloadLocalMark()
+    let projectRoot = FindProjectRoot()
+    if len(projectRoot) <= 0
+        echohl WarningMsg | echo "Project root not found." | echohl None
         return
     endif
-
-    let temp = g:Signs_file_path_corey
-    let g:Signs_file_path_corey=path
-    call Load_signs_from_file()
-    let g:Signs_file_path_corey = temp
-  endif
+    let markFileName = s:GetMarkFileFromInput('Load Marks from: ')
+    call s:ReloadMark(projectRoot, markFileName)
 endfun
+
+fun! ReloadGlobalMark()
+  if !exists("g:Signs_file_path_corey")
+      echohl WarningMsg | echo "g:Signs_file_path_corey not define." | echohl None
+      return
+  endif
+
+  let markFileName = s:GetMarkFileFromInput('Load Marks from: ')
+  let projectRoot = g:Signs_file_path_corey.'/'.markFileName
+  if !isdirectory(projectRoot)
+      echohl WarningMsg | echo "Global project root not found." | echohl None
+  endif
+  call s:ReloadMark(projectRoot, markFileName)
+endfun
+
+fun! s:ReloadMark(root, markFile)
+  let projectRoot = a:root
+  let markFileName = a:markFile
+  let localMarksDir=projectRoot.g:prefixPath.'/'.'marks'
+  let path=localMarksDir.'/'.markFileName
+
+  " let path = s:GetMarkFileFromInput('Load Marks from: ')
+  if !filereadable(path) 
+      echohl WarningMsg | echo "\nFile not found: ".path | echohl None
+      return
+  endif
+  call Load_signs_from_file(projectRoot, path)
+endfun
+
+fun! s:BackupScrFile(projectRoot, dstProjectRoot)
+  let projectRootLen = len(a:projectRoot)
+  let isIgnoreFirstLine = 1
+  for item in s:mylist
+    if isIgnoreFirstLine == 1
+        let isIgnoreFirstLine = 0
+        continue
+    endif
+
+    let srcPath = item[2]
+    if strpart(srcPath, 0, projectRootLen) == a:projectRoot
+        let dstPath = substitute(srcPath, a:projectRoot, a:dstProjectRoot, "")
+        if !filereadable(dstPath)
+            call s:CopyFile(srcPath, dstPath)
+        endif
+    endif
+  endfor
+endfun
+
+fun! s:CopyFile(srcPath, dstPath)
+    let dstDir=fnamemodify(a:dstPath, ':h')
+    if !isdirectory(dstDir)
+        call mkdir(dstDir, "p")
+    endif
+    if g:iswindows != 1
+        silent! execute '!cp '.a:srcPath.' '.a:dstPath
+    else
+        silent! execute '!copy '.a:srcPath.' '.a:dstPath
+    endif
+endfun
+
+fun! s:GetProjectRoot()
+  let dir = FindProjectRoot()
+  if len(dir) <= 0
+      let reply = input('Project root not found, use current?(y/n): ')
+      if reply != 'y'
+          echo "\nCancel."
+          let dif=""
+      else
+          let dir=expand("%:p:h")
+      endif
+  endif
+
+  return dir
+endfun
+
+fun! s:GetMarkFileFromInput(inputMsg)
+  call inputsave()
+  let Pname = input(a:inputMsg)
+  call inputrestore()
+  if len(Pname) <= 0
+      " let Pname="marks".g:outFileExt
+      let Pname="mark"
+  endif
+
+  " let localMarksDir=dir.g:prefixPath.'/'.'marks'
+  " let path=localMarksDir.'/'.Pname
+  " return path
+  return Pname
+endfun
+
+" ---------------------------------------------------------------------
+" fun! SaveP()
+  " call inputsave()
+  " let Pname = input('Save Marks to: ')
+  " call inputrestore()
+  " if len(Pname) > 0
+      " if exists("g:Signs_file_path_corey")
+        " let temp = g:Signs_file_path_corey
+        " let g:Signs_file_path_corey = g:Signs_file_path_corey . Pname
+        " call Save_signs_to_file(0)
+        " let g:Signs_file_path_corey = temp
+      " else
+        " echohl WarningMsg | echo "\nError: g:Signs_file_path_corey not define!" | echohl None
+      " endif
+  " else
+    " let dir = FindProjectRoot()
+    " if len(dir) <= 0
+        " let dir=expand("%:p:h")
+    " endif
+    " let localMarksDir=dir.g:prefixPath.'/'.'marks'
+    " let Pname="marks".g:outFileExt
+    " let path=localMarksDir.'/'.Pname
+
+    " if !isdirectory(localMarksDir)
+        " call mkdir(localMarksDir, "p")
+    " endif
+    " if filereadable(path) 
+        " call delete(path)
+    " endif
+
+    " let temp = g:Signs_file_path_corey
+    " let g:Signs_file_path_corey=path
+    " call Save_signs_to_file(0)
+    " let g:Signs_file_path_corey = temp
+  " endif
+" endfun
+
+" fun! ReloadP()
+  " call inputsave()
+  " let Pbname = input('Load Marks from: ')
+  " call inputrestore()
+  " if len(Pbname) > 0
+      " if exists("g:Signs_file_path_corey")
+        " let temp = g:Signs_file_path_corey
+        " let g:Signs_file_path_corey = g:Signs_file_path_corey . Pbname
+        " call Load_signs_from_file()
+        " let g:Signs_file_path_corey = temp
+      " else
+        " echohl WarningMsg | echo "\nError: g:Signs_file_path_corey not define!" | echohl None
+      " endif
+  " else
+    " let dir = FindProjectRoot()
+    " if len(dir) <= 0
+        " let dir=expand("%:p:h")
+    " endif
+    " let localMarksDir=dir.g:prefixPath.'/'.'marks'
+    " let Pname="marks".g:outFileExt
+    " let path=localMarksDir.'/'.Pname
+
+    " if !filereadable(path) 
+        " echohl WarningMsg | echo "\nFile not found: ".path | echohl None
+        " return
+    " endif
+
+    " let temp = g:Signs_file_path_corey
+    " let g:Signs_file_path_corey=path
+    " call Load_signs_from_file()
+    " let g:Signs_file_path_corey = temp
+  " endif
+" endfun
 " ---------------------------------------------------------------------
 " put on one sign
 fun! Place_sign()
@@ -202,48 +368,67 @@ fun! Goto_next_sign()
 endfun
 " ---------------------------------------------------------------------
 " Save_signs_to_file
-fun! Save_signs_to_file()
+fun! Save_signs_to_file(projectRoot, filePath)
 
-  call s:Get_signs_file_name()
+  " call s:Get_signs_file_name()
+
+  " if a:isGlobal == 1
+      " let dstRoot=s:outputFileName
+      " let localMarksDir=dstRoot.g:prefixPath.'/'.'marks'
+      " let s:outputFileName =  localMarksDir.'/'.'marks'.g:outFileExt
+      " if !isdirectory(localMarksDir)
+          " call mkdir(localMarksDir, "p")
+      " endif
+  " endif
+
+  " if len(a:filePath) <= 0
+    " let a:filePath = s:outputFileName
+  " endif
   let tempList = []
   for item in s:mylist
-    let tempList = tempList + [item[0] . "#" . item[1]. "#" . item[2]]
+    let srcPath = substitute(item[2], a:projectRoot, '.', "")
+    let tempList = tempList + [item[0] . "#" . item[1]. "#" . srcPath]
   endfor
-  if exists("g:Signs_file_path_corey")
-      let writeFlag = writefile(tempList, s:outputFileName)
-      if writeFlag==0       
-        echo "\nSucces to save file: ".s:outputFileName
-      else
-        echohl WarningMsg | echo "\nError to save file: ".s:outputFileName | echohl None
-      endif
+  let writeFlag = writefile(tempList, a:filePath)
+  if writeFlag==0       
+      echo "\nSucces to save file: ".a:filePath
+  else
+      echohl WarningMsg | echo "\nError to save file: ".a:filePath | echohl None
   endif
 endfun
 " ---------------------------------------------------------------------
 " Load_signs_from_file
-fun! Load_signs_from_file()
+fun! Load_signs_from_file(projectRoot, filePath)
 
-  call s:Get_signs_file_name()
-  if filereadable(s:outputFileName)
+  " call s:Get_signs_file_name()
+  " if len(a:filePath) <= 0
+      " let a:filePath = s:outputFileName
+  " endif
+  if filereadable(a:filePath)
     let tempList = [[]]
     let iflag = 0
-    for line in readfile(s:outputFileName)
+    for line in readfile(a:filePath)
       let first = stridx(line, "#", 0)
       let second = stridx(line, "#", first + 1)
+      let srcPath = strpart(line, second + 1)
+      if strpart(srcPath, 0, 1) == '.'
+          let srcPath = substitute(srcPath, '.', a:projectRoot, "")
+      endif
       if iflag != 0
-        let tempList = tempList + [[strpart(line, 0, first), strpart(line, first + 1, second - first - 1), strpart(line, second + 1)]]
+        let tempList = tempList + [[strpart(line, 0, first), strpart(line, first + 1, second - first - 1), srcPath]]
       else
-        let tempList = [[strpart(line, 0, first), strpart(line, first + 1, second - first - 1), strpart(line, second + 1)]]
+        let tempList = [[strpart(line, 0, first), strpart(line, first + 1, second - first - 1), srcPath]]
       endif
       let iflag = 1
     endfor
     let s:mylist = tempList
   else
-      echohl WarningMsg | echo "\nFile not found: ".s:outputFileName | echohl None
+      echohl WarningMsg | echo "\nFile not found: ".a:filePath | echohl None
       return
   endif
 
   call s:Flash_signs()
-  echo "\nSucces to reload file: ".s:outputFileName
+  echo "\nSucces to reload file: ".a:filePath
 
   "echo s:mylist
 endfun
@@ -282,7 +467,12 @@ fun! s:Flash_signs()
   silent! exe 'sign unplace *'
   silent! exe 'sign undefine *'
   if len(s:mylist) > 1
+    let isIgnoreFirstLine = 1
     for item in s:mylist
+      if isIgnoreFirstLine == 1
+        let isIgnoreFirstLine = 0
+        continue
+      endif
       silent! exe 'sign define CS' . item[0] . ' text='. item[0] .' texthl=ErrorMsg'
       silent! exe 'badd ' . item[2]
       silent! exe 'sign place ' . item[0] . ' line=' . item[1] . ' name=CS'. item[0] . ' file=' . item[2]
@@ -482,10 +672,130 @@ nnoremap <silent> <script> <Plug>Move_sign :call Move_sign()<cr>
 
 " noremap <F6> :call SaveP()<cr>
 " noremap <F5> :call ReloadP()<cr>
-command! SaveMarks call SaveP()
-command! ReloadMarks call ReloadP()
+" command! SaveMarks call SaveP()
+" command! ReloadMarks call ReloadP()
 command! RemoveAllMarks call Remove_all_signs()
 
+
+let s:selectMarkBufferName = '::marks::'
+
+fun! SelectLocalMark()
+    let projectRoot = FindProjectRoot()
+    if len(projectRoot) <= 0
+        echohl WarningMsg | echo "Project root not found." | echohl None
+        return
+    endif
+
+    let markFileList = s:GetMarksListFromProjectRoot(projectRoot)
+    call s:showSelectMarkBuffer(markFileList)
+endfun
+
+fun! SelectGlobalMark()
+    if !exists("g:Signs_file_path_corey")
+        echohl WarningMsg | echo "g:Signs_file_path_corey not define." | echohl None
+        return
+    endif
+    if !isdirectory(g:Signs_file_path_corey)
+        echohl WarningMsg | echo g:Signs_file_path_corey. " not exist." | echohl None
+        return
+    endif
+
+    let projectList = split(globpath(g:Signs_file_path_corey, '*'), '\n')
+    let totalMarkFileList = []
+    for projectRoot in projectList
+        if isdirectory(projectRoot)
+            let markFileList = s:GetMarksListFromProjectRoot(projectRoot)
+            if !empty(markFileList)
+                call extend(totalMarkFileList, markFileList)
+            endif
+        endif
+    endfor
+    call s:showSelectMarkBuffer(totalMarkFileList)
+endfun
+
+fun! s:GetMarksListFromProjectRoot(root)
+    let projectRoot = a:root
+    let localMarksDir=projectRoot.g:prefixPath.'/'.'marks'
+
+    let markFileList = split(globpath(localMarksDir, '*'), '\n')
+    return markFileList
+endfun
+
+fun! s:showSelectMarkBuffer(contentList)
+    if empty(a:contentList)
+        echohl WarningMsg | echo "No marks found." | echohl None
+        return
+    endif
+
+    call marks_corey#CloseSelectMarkBuffer()
+
+    let lineCount = len(a:contentList)
+    exe 'silent! ' . 'botright 'lineCount.'sp ' .s:selectMarkBufferName
+
+    " setlocal noshowcmd    "showcmd is a global option
+    setlocal noswapfile
+    setlocal buftype=nofile
+    setlocal bufhidden=wipe
+    setlocal nobuflisted
+    setlocal nomodifiable
+    setlocal nowrap
+    setlocal nonumber
+    setlocal filetype=selectmark
+	if has('patch-7.4.2210')
+		setlocal signcolumn=no
+	endif
+
+    " set content
+    setlocal modifiable
+    put! = a:contentList
+    " exec "$delete"
+    " delete last blank line into 'black hole register'
+    exec "normal G"
+    exec 'normal "_dd'
+    exec "normal gg"
+    setlocal nomodifiable
+
+    call s:UnmapAllKeys()
+    autocmd! BufLeave <buffer> call marks_corey#CloseSelectMarkBuffer()
+    map <silent> <buffer> <ESC> :call marks_corey#CloseSelectMarkBuffer()<cr>
+    map <silent> <buffer> q <ESC>
+    noremap <silent> <buffer> <CR> :call marks_corey#LoadByCursor()<CR>
+    noremap <silent> <buffer> dd :call marks_corey#DeleteByCursor()<CR>
+endfun
+
+fun! marks_corey#CloseSelectMarkBuffer()
+    if bufexists(s:selectMarkBufferName)
+        exe 'bwipeout ' . bufnr(s:selectMarkBufferName)
+    endif
+endfun
+
+fu! s:UnmapAllKeys()
+    let hint1 = "abcefhilmoprstuvwxyz"
+    for idx in range(0, len(hint1)-1)
+        execute 'map <buffer> '.hint1[idx].' <Nop>'
+    endfor
+endfun
+
+fu! marks_corey#LoadByCursor()
+    let path = getline(line("."))
+    let markFileName = fnamemodify(path, ':t')
+    let projectRoot = fnamemodify(path, ':p:h:h:h')
+
+    call s:ReloadMark(projectRoot, markFileName)
+    call marks_corey#CloseSelectMarkBuffer()
+endfun
+
+fu! marks_corey#DeleteByCursor()
+    let path = getline(line("."))
+    echo path
+    let reply = input('Delete this mark? (y/n): ')
+    if reply == 'y'
+        call delete(path, "rf")
+    else
+        echo "\nCancel."
+    endif
+    call marks_corey#CloseSelectMarkBuffer()
+endfun
 
 " ---------------------------------------------------------------------
 
