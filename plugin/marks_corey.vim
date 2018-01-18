@@ -549,7 +549,8 @@ fun! s:Sign_jump(aSignItem)
     silent! exe 'sign jump '. a:aSignItem[0] . ' file='. a:aSignItem[2]
   else
     call s:Open_file(a:aSignItem[2])
-    silent! exe 'sign place ' . a:aSignItem[0] . ' line=' . a:aSignItem[1] . ' name=CS'. a:aSignItem[0] . ' file=' . a:aSignItem[2]
+    " silent! exe 'sign place ' . a:aSignItem[0] . ' line=' . a:aSignItem[1] . ' name=CS'. a:aSignItem[0] . ' file=' . a:aSignItem[2]
+    call s:ResignWhenJumpToOpen(a:aSignItem[2])
     silent! exe 'sign jump '. a:aSignItem[0] . ' file='. a:aSignItem[2]
   endif
 
@@ -649,13 +650,13 @@ nnoremap <silent> <script> <Plug>Place_sign :call Place_sign()<cr>
 
 if !hasmapto('<Plug>Goto_next_sign') 
   map <unique> <F2> <Plug>Goto_next_sign
-  map <silent> <unique> mb <Plug>Goto_next_sign
+  map <silent> <unique> mn <Plug>Goto_next_sign
 endif
 nnoremap <silent> <script> <Plug>Goto_next_sign :call Goto_next_sign()<cr>
 
 if !hasmapto('<Plug>Goto_prev_sign') 
   map <unique> <s-F2> <Plug>Goto_prev_sign
-  map <silent> <unique> mv <Plug>Goto_prev_sign
+  map <silent> <unique> mp <Plug>Goto_prev_sign
 endif
 nnoremap <silent> <script> <Plug>Goto_prev_sign :call Goto_prev_sign()<cr>
 
@@ -722,12 +723,17 @@ fun! s:GetMarksListFromProjectRoot(root)
 endfun
 
 fun! s:showSelectMarkBuffer(contentList)
+    call s:showContentBuffer(a:contentList)
+    noremap <silent> <buffer> <CR> :call marks_corey#LoadByCursor()<CR>
+    noremap <silent> <buffer> dd :call marks_corey#DeleteByCursor()<CR>
+endfun
+
+fun! s:showContentBuffer(contentList)
+    call marks_corey#CloseSelectMarkBuffer()
     if empty(a:contentList)
         echohl WarningMsg | echo "No marks found." | echohl None
         return
     endif
-
-    call marks_corey#CloseSelectMarkBuffer()
 
     let lineCount = len(a:contentList)
     exe 'silent! ' . 'botright 'lineCount.'sp ' .s:selectMarkBufferName
@@ -759,8 +765,6 @@ fun! s:showSelectMarkBuffer(contentList)
     autocmd! BufLeave <buffer> call marks_corey#CloseSelectMarkBuffer()
     map <silent> <buffer> <ESC> :call marks_corey#CloseSelectMarkBuffer()<cr>
     map <silent> <buffer> q <ESC>
-    noremap <silent> <buffer> <CR> :call marks_corey#LoadByCursor()<CR>
-    noremap <silent> <buffer> dd :call marks_corey#DeleteByCursor()<CR>
 endfun
 
 fun! marks_corey#CloseSelectMarkBuffer()
@@ -795,6 +799,37 @@ fu! marks_corey#DeleteByCursor()
         echo "\nCancel."
     endif
     call marks_corey#CloseSelectMarkBuffer()
+endfun
+
+fun! s:ResignWhenJumpToOpen(filepath)
+    for item in s:mylist
+        if item[2] == a:filepath
+            silent! exe 'sign place ' . item[0] . ' line=' . item[1] . ' name=CS'. item[0] . ' file=' . item[2]
+        endif
+    endfor
+endfun
+
+fun! ShowCurrentMarksBuffer()
+    call s:showContentBuffer(s:mylist)
+    noremap <silent> <buffer> <CR> :call marks_corey#JumpByCursor()<CR>
+    noremap <silent> <buffer> dd :call marks_corey#RemoveSignByCursor()<CR>
+endfun
+
+fun! marks_corey#JumpByCursor()
+    let linenum = line('.') - 1
+    if linenum > 0
+        let s:myIndex = linenum
+        call s:Sign_jump(s:mylist[s:myIndex])
+    endif
+    call marks_corey#CloseSelectMarkBuffer()
+endfun
+
+fun! marks_corey#RemoveSignByCursor()
+    let linenum = line('.') - 1
+    if linenum > 0
+        call s:Remove_sign(linenum)
+        call ShowCurrentMarksBuffer()
+    endif
 endfun
 
 " ---------------------------------------------------------------------
