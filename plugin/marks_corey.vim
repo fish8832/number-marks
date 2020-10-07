@@ -49,15 +49,17 @@ else
   let s:win32Flag = 0
 endif
 
-"[ sign id, line number, file name]
-let s:mylist = [["00","0","DO NOT CHANGE ANYTHING, THIS USING FOR A VIM PLUGIN. BY HONGLI GAO @2010/08"]]
+"[ sign id, line number, file name, line content]
+let s:mylist = [["00","0","DO NOT CHANGE ANYTHING, THIS USING FOR A VIM PLUGIN.", ""]]
 " let s:mylist = [[]]
 let s:myIndex = 1
-let s:tmplist = ["00","0","corey"]
+let s:tmplist = ["00","0","corey", ""]
 let s:deleteFlag = 0
 " let s:outputFileName = "DO_NOT_DELETE_IT"
 let s:outputFileName = ""
-let s:remarkItem = ["REMARK","SEARCH","FLAG"]
+let s:remarkItem = ["REMARK","SEARCH","FLAG",""]
+let s:ENABLE_LINE_CONTENT = 1
+let s:isListChanged = 0
 
 
 fun! SaveLocalMark()
@@ -304,9 +306,16 @@ fun! Place_sign()
 
   let vLn = "".line(".")
   let vFileName = expand("%:p")
+  let vLineContent = ""
+  if s:ENABLE_LINE_CONTENT
+      let vLineContent = getline(vLn * 1)
+      if len(vLineContent) > 100
+          let vLineContent = strpart(vLineContent, 0, 100) . '...'
+      endif
+  endif
 
   let vFlagNum = (s:Cs_sign_number < 10 ? "0" . s:Cs_sign_number : s:Cs_sign_number)
-  let newItem = [vFlagNum,vLn,vFileName]
+  let newItem = [vFlagNum, vLn, vFileName, vLineContent]
   let vIndex = s:Check_list(newItem)
 
   if vIndex > -1
@@ -389,7 +398,7 @@ fun! Save_signs_to_file(projectRoot, filePath)
   let tempList = []
   for item in s:mylist
     let srcPath = substitute(item[2], a:projectRoot, '.', "")
-    let tempList = tempList + [item[0] . "#" . item[1]. "#" . srcPath]
+    let tempList = tempList + [item[0] . "#" . item[1]. "#" . srcPath. "#". item[3]]
   endfor
   let writeFlag = writefile(tempList, a:filePath)
   if writeFlag==0       
@@ -412,15 +421,24 @@ fun! Load_signs_from_file(projectRoot, filePath)
     for line in readfile(a:filePath)
       let first = stridx(line, "#", 0)
       let second = stridx(line, "#", first + 1)
-      let srcPath = strpart(line, second + 1)
+      let third = stridx(line, "#", second + 1)
+      if third >= 0
+          let srcPath = strpart(line, second + 1, third - second - 1)
+          let lineContent = strpart(line, third + 1)
+      else
+          let srcPath = strpart(line, second + 1)
+          let lineContent = ""
+      endif
       if strpart(srcPath, 0, 1) == '.'
           let srcPath = substitute(srcPath, '.', a:projectRoot, "")
       endif
+      
       if iflag != 0
-        let tempList = tempList + [[strpart(line, 0, first), strpart(line, first + 1, second - first - 1), srcPath]]
+        let tempList = tempList + [[strpart(line, 0, first), strpart(line, first + 1, second - first - 1), srcPath, lineContent]]
       else
-        let tempList = [[strpart(line, 0, first), strpart(line, first + 1, second - first - 1), srcPath]]
+        let tempList = [[strpart(line, 0, first), strpart(line, first + 1, second - first - 1), srcPath, lineContent]]
       endif
+
       let iflag = 1
     endfor
     let s:mylist = tempList
@@ -776,6 +794,10 @@ fun! s:showContentBuffer(contentList)
     exec "normal gg"
     setlocal nomodifiable
 
+    if len(a:contentList) > 1
+        call cursor(2, 1)
+    endif
+
     call s:UnmapAllKeys()
     autocmd! BufLeave <buffer> call marks_corey#CloseSelectMarkBuffer()
     map <silent> <buffer> <ESC> :call marks_corey#CloseSelectMarkBuffer()<cr>
@@ -785,6 +807,11 @@ endfun
 fun! marks_corey#CloseSelectMarkBuffer()
     if bufexists(s:selectMarkBufferName)
         exe 'bwipeout ' . bufnr(s:selectMarkBufferName)
+    endif
+
+    if s:isListChanged
+        let s:isListChanged = 0
+        call Reorder_mark_num()
     endif
 endfun
 
@@ -825,11 +852,18 @@ fun! s:ResignWhenJumpToOpen(filepath)
 endfun
 
 fun! ShowCurrentMarksBuffer()
-    let contentList = s:Get_marks_list_with_line()
+    let s:isListChanged = 0
+    let contentList = s:Get_marks_list_with_simple_file_name(s:mylist)
     call s:showContentBuffer(contentList)
-    " call s:showContentBuffer(s:mylist)
     noremap <silent> <buffer> <CR> :call marks_corey#JumpByCursor()<CR>
-    noremap <silent> <buffer> dd :call marks_corey#RemoveSignByCursor()<CR>
+    noremap <silent> <buffer> dd :call marks_corey#RemoveLineByCursor()<CR>
+    noremap <silent> <buffer> <c-j> :call marks_corey#MoveLineForward(-1)<CR>
+    noremap <silent> <buffer> <c-k> :call marks_corey#MoveLineBackward()<CR>
+
+
+    " call s:showContentBuffer(s:mylist)
+    " noremap <silent> <buffer> <CR> :call marks_corey#JumpByCursor()<CR>
+    " noremap <silent> <buffer> dd :call marks_corey#RemoveSignByCursor()<CR>
 endfun
 
 fun! marks_corey#JumpByCursor()
@@ -915,14 +949,45 @@ endfun
     " return s:mylist
 " endfun
 
-fun! s:Get_marks_list_with_line()
-    if len(s:mylist) <= 0
-        return s:mylist
+" fun! s:Get_marks_list_with_line()
+    " if len(s:mylist) <= 0
+        " return s:mylist
+    " endif
+    
+    " let resultList = []
+    " let isIgnoreFirstLine = 1
+    " for item in s:mylist
+      " if isIgnoreFirstLine == 1
+        " let isIgnoreFirstLine = 0
+        " call add(resultList, item)
+        " continue
+      " endif
+
+      " let vFileName = item[2] 
+      " let idx = strridx(vFileName, '/')
+      " if idx >= 0
+          " let vFileName = strpart(vFileName, idx + 1)
+      " endif
+      " let content = getbufline(bufnr(item[2]), item[1] * 1)[0]
+      " if len(content) > 100
+          " let content = strpart(content, 0, 100) . '...'
+      " endif
+      " let newItem = [item[0], item[1], vFileName, content]
+
+      " call add(resultList, newItem)
+    " endfor
+
+    " return resultList
+" endfun
+
+fun! s:Get_marks_list_with_simple_file_name(itemList)
+    if len(a:itemList) <= 0
+        return a:itemList
     endif
     
     let resultList = []
     let isIgnoreFirstLine = 1
-    for item in s:mylist
+    for item in a:itemList
       if isIgnoreFirstLine == 1
         let isIgnoreFirstLine = 0
         call add(resultList, item)
@@ -934,11 +999,7 @@ fun! s:Get_marks_list_with_line()
       if idx >= 0
           let vFileName = strpart(vFileName, idx + 1)
       endif
-      let content = getbufline(bufnr(item[2]), item[1] * 1)[0]
-      if len(content) > 100
-          let content = strpart(content, 0, 100) . ' ...'
-      endif
-      let newItem = [item[0], item[1], vFileName, content]
+      let newItem = [item[0], item[1], vFileName, item[3]]
 
       call add(resultList, newItem)
     endfor
@@ -946,4 +1007,54 @@ fun! s:Get_marks_list_with_line()
     return resultList
 endfun
 
+fun! marks_corey#RemoveLineByCursor()
+    let itemList = s:mylist
+    let linenum = line('.') - 1
+    if linenum > 0 && linenum < len(itemList)
+        call remove(itemList, linenum)
+
+        setlocal modifiable
+        call deletebufline(bufnr(), linenum + 1)
+        setlocal nomodifiable
+
+        let s:isListChanged = 1
+    endif
+endfun
+
+fun! marks_corey#MoveLineForward(num)
+    let itemList = s:mylist
+    let linenum = line('.') - 1
+    if a:num > 0
+        let linenum = a:num
+    endif
+    if linenum > 0 && linenum < len(itemList) - 1
+        let lineContent = getline(linenum + 1)
+        let nextLineContent = getline(linenum + 2)
+        let nextlinenum = linenum + 1
+        let currentItem = itemList[linenum]
+        call remove(itemList, linenum)
+        call insert(itemList, currentItem, nextlinenum)
+
+        setlocal modifiable
+        call setline(linenum + 1, nextLineContent)
+        call setline(linenum + 2, lineContent)
+        setlocal nomodifiable
+
+        if a:num > 0
+            call cursor(linenum + 1, 1)
+        else
+            call cursor(linenum + 2, 1)
+        endif
+
+        let s:isListChanged = 1
+    endif
+endfun
+
+fun! marks_corey#MoveLineBackward()
+    let linenum = line('.') - 1
+    if linenum > 1
+        let linenum = linenum - 1
+        call marks_corey#MoveLineForward(linenum)
+    endif
+endfun
 " ---------------------------------------------------------------------
