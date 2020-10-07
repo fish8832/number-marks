@@ -794,9 +794,9 @@ fun! s:showContentBuffer(contentList)
     exec "normal gg"
     setlocal nomodifiable
 
-    if len(a:contentList) > 1
-        call cursor(2, 1)
-    endif
+    " if len(a:contentList) > 1
+        " call cursor(2, 1)
+    " endif
 
     call s:UnmapAllKeys()
     autocmd! BufLeave <buffer> call marks_corey#CloseSelectMarkBuffer()
@@ -854,11 +854,15 @@ endfun
 fun! ShowCurrentMarksBuffer()
     let s:isListChanged = 0
     let contentList = s:Get_marks_list_with_simple_file_name(s:mylist)
-    call s:showContentBuffer(contentList)
-    noremap <silent> <buffer> <CR> :call marks_corey#JumpByCursor()<CR>
-    noremap <silent> <buffer> dd :call marks_corey#RemoveLineByCursor()<CR>
-    noremap <silent> <buffer> <c-j> :call marks_corey#MoveLineForward(-1)<CR>
-    noremap <silent> <buffer> <c-k> :call marks_corey#MoveLineBackward()<CR>
+    if len(contentList) > 0
+        call s:showContentBuffer(contentList)
+        noremap <silent> <buffer> <CR> :call marks_corey#JumpByCursor()<CR>
+        noremap <silent> <buffer> dd :call marks_corey#RemoveLineByCursor()<CR>
+        noremap <silent> <buffer> <c-j> :call marks_corey#MoveLineForward(-1)<CR>
+        noremap <silent> <buffer> <c-k> :call marks_corey#MoveLineBackward()<CR>
+    else
+      echohl WarningMsg | echo "Marks list is empty." | echohl None
+    endif
 
 
     " call s:showContentBuffer(s:mylist)
@@ -867,7 +871,8 @@ fun! ShowCurrentMarksBuffer()
 endfun
 
 fun! marks_corey#JumpByCursor()
-    let linenum = line('.') - 1
+    " let linenum = line('.') - 1
+    let linenum = line('.')
     if linenum > 0
         let s:myIndex = linenum
         call s:Sign_jump(s:mylist[s:myIndex])
@@ -908,7 +913,7 @@ endfun
 
 " ---------------------------------------------------------------------
 fun! Reorder_mark_num()
-  if len(s:mylist) > 1
+  if len(s:mylist) > 0
     let signList = sign_getplaced()
 
     silent! exe 'sign unplace *'
@@ -990,7 +995,7 @@ fun! s:Get_marks_list_with_simple_file_name(itemList)
     for item in a:itemList
       if isIgnoreFirstLine == 1
         let isIgnoreFirstLine = 0
-        call add(resultList, item)
+        " call add(resultList, item)
         continue
       endif
 
@@ -1009,41 +1014,46 @@ endfun
 
 fun! marks_corey#RemoveLineByCursor()
     let itemList = s:mylist
-    let linenum = line('.') - 1
+    let linenum = line('.')
     if linenum > 0 && linenum < len(itemList)
         call remove(itemList, linenum)
 
         setlocal modifiable
-        call deletebufline(bufnr(), linenum + 1)
+        call deletebufline(bufnr(), linenum)
         setlocal nomodifiable
 
         let s:isListChanged = 1
+
+        if len(itemList) <= 1
+            " exit when last item remove
+            call marks_corey#CloseSelectMarkBuffer()
+        endif
     endif
 endfun
 
 fun! marks_corey#MoveLineForward(num)
     let itemList = s:mylist
-    let linenum = line('.') - 1
+    let linenum = line('.')
     if a:num > 0
         let linenum = a:num
     endif
     if linenum > 0 && linenum < len(itemList) - 1
-        let lineContent = getline(linenum + 1)
-        let nextLineContent = getline(linenum + 2)
+        let lineContent = getline(linenum)
+        let nextLineContent = getline(linenum + 1)
         let nextlinenum = linenum + 1
         let currentItem = itemList[linenum]
         call remove(itemList, linenum)
         call insert(itemList, currentItem, nextlinenum)
 
         setlocal modifiable
-        call setline(linenum + 1, nextLineContent)
-        call setline(linenum + 2, lineContent)
+        call setline(linenum, nextLineContent)
+        call setline(linenum + 1, lineContent)
         setlocal nomodifiable
 
         if a:num > 0
-            call cursor(linenum + 1, 1)
+            call cursor(linenum, 1)
         else
-            call cursor(linenum + 2, 1)
+            call cursor(linenum + 1, 1)
         endif
 
         let s:isListChanged = 1
@@ -1051,7 +1061,7 @@ fun! marks_corey#MoveLineForward(num)
 endfun
 
 fun! marks_corey#MoveLineBackward()
-    let linenum = line('.') - 1
+    let linenum = line('.')
     if linenum > 1
         let linenum = linenum - 1
         call marks_corey#MoveLineForward(linenum)
