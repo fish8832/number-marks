@@ -331,8 +331,10 @@ fun! Remove_all_signs()
   silent! exe 'sign unplace *'
   if len(s:mylist) > 1
     let i = remove(s:mylist, 1, -1)
-    let s:Cs_sign_number = 1
   endif
+  let s:Cs_sign_number = 1
+  let s:myIndex = 1
+  let s:remarkItem = ["REMARK","SEARCH","FLAG"]
   "echo s:mylist
 endfun
 
@@ -521,6 +523,8 @@ fun! Move_sign()
       let s:remarkItem = s:mylist[vRIndex]
       let s:myIndex = vRIndex
       "echo s:remarkItem
+    else
+        echohl WarningMsg | echo "Failed: mark the moving sign first." | echohl None
     endif
   else
     let pionter = s:Check_list(s:remarkItem)
@@ -535,6 +539,16 @@ fun! Move_sign()
       "echo s:mylist[pionter]
       let s:myIndex = pionter
       let s:remarkItem = ["REMARK","SEARCH","FLAG"]
+    elseif (vRIndex > 0 && pionter > 0)
+      " echohl WarningMsg | echo "Failed: already mark here." | echohl None
+      " already mark here, move the mark before it
+      call remove(s:mylist, pionter)
+      let vRIndex = s:Check_list(s:tempItem)
+      call insert(s:mylist, s:remarkItem, vRIndex)
+      call Reorder_mark_num()
+      let s:myIndex = vRIndex
+    else
+      echohl WarningMsg | echo "Failed: can not find the mark wanted to move." | echohl None
     endif
   endif
 endfun
@@ -676,6 +690,7 @@ nnoremap <silent> <script> <Plug>Move_sign :call Move_sign()<cr>
 " command! SaveMarks call SaveP()
 " command! ReloadMarks call ReloadP()
 command! RemoveAllMarks call Remove_all_signs()
+command! ReorderAllMarks call Reorder_mark_num()
 
 
 let s:selectMarkBufferName = '::marks::'
@@ -810,7 +825,9 @@ fun! s:ResignWhenJumpToOpen(filepath)
 endfun
 
 fun! ShowCurrentMarksBuffer()
-    call s:showContentBuffer(s:mylist)
+    let contentList = s:Get_marks_list_with_line()
+    call s:showContentBuffer(contentList)
+    " call s:showContentBuffer(s:mylist)
     noremap <silent> <buffer> <CR> :call marks_corey#JumpByCursor()<CR>
     noremap <silent> <buffer> dd :call marks_corey#RemoveSignByCursor()<CR>
 endfun
@@ -833,4 +850,100 @@ fun! marks_corey#RemoveSignByCursor()
 endfun
 
 " ---------------------------------------------------------------------
+fun! s:Get_real_line_num(signList, targetNum)
+  let result = -1
+  let targetName = 'CS' . a:targetNum
+  let signList = a:signList
+  " let signList = sign_getplaced()
+  " let signList =  [{'signs': [{'lnum': 558, 'id': 1, 'name': 'CS01', 'priority': 10, 'group': ''}, {'lnum': 561, 'id': 2, 'name': 'CS02', 'priority': 10, 'group': ''}, {'lnum': 562, 'id': 3, 'name': 'CS03', 'priority': 10, 'group': ''}], 'bufnr': 2}, {'signs': [{'lnum': 8, 'id': 4, 'name': 'CS04', 'priority': 10, 'group': ''}], 'bufnr': 6}]
 
+  if len(signList) > 0
+      for item in signList
+          let childList = item['signs']
+          for childItem in childList
+              if targetName == childItem['name']
+                  let result = childItem['lnum']
+                  return result
+              endif
+          endfor
+      endfor
+  endif
+
+  return result
+endfun
+
+" ---------------------------------------------------------------------
+fun! Reorder_mark_num()
+  if len(s:mylist) > 1
+    let signList = sign_getplaced()
+
+    silent! exe 'sign unplace *'
+    silent! exe 'sign undefine *'
+    let index = 1
+
+    let isIgnoreFirstLine = 1
+    for item in s:mylist
+      if isIgnoreFirstLine == 1
+        let isIgnoreFirstLine = 0
+        continue
+      endif
+
+      let linenum = s:Get_real_line_num(signList, item[0])
+      if linenum >= 0
+          let item[1] = linenum
+      endif
+
+      let vFlagNum = (index < 10 ? "0" . index : "".index)
+      let item[0] = vFlagNum
+
+      silent! exe 'sign define CS' . item[0] . ' text='. item[0] .' texthl=ErrorMsg'
+      silent! exe 'badd ' . item[2]
+      silent! exe 'sign place ' . item[0] . ' line=' . item[1] . ' name=CS'. item[0] . ' file=' . item[2]
+
+      let index = index + 1
+    endfor
+    let s:Cs_sign_number = s:mylist[len(s:mylist) - 1][0] * 1 + 1
+  else
+    let s:Cs_sign_number = 1
+  endif
+  let s:myIndex = 1
+  let s:remarkItem = ["REMARK","SEARCH","FLAG"]
+endfun
+
+" ---------------------------------------------------------------------
+" fun! Get_marks_list()
+    " return s:mylist
+" endfun
+
+fun! s:Get_marks_list_with_line()
+    if len(s:mylist) <= 0
+        return s:mylist
+    endif
+    
+    let resultList = []
+    let isIgnoreFirstLine = 1
+    for item in s:mylist
+      if isIgnoreFirstLine == 1
+        let isIgnoreFirstLine = 0
+        call add(resultList, item)
+        continue
+      endif
+
+      let vFileName = item[2] 
+      let idx = strridx(vFileName, '/')
+      if idx >= 0
+          let vFileName = strpart(vFileName, idx + 1)
+      endif
+      let content = getbufline(bufnr(item[2]), item[1] * 1)[0]
+      if len(content) > 100
+          let content = strpart(content, 0, 100) . ' ...'
+      endif
+      let newItem = [item[0], item[1], vFileName, content]
+
+      call add(resultList, newItem)
+    endfor
+
+    return resultList
+endfun
+
+" ---------------------------------------------------------------------
